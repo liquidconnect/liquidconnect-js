@@ -1,5 +1,8 @@
 /* Liquid Connect — the connect button, v0.3
  *
+ *   latest:  https://test.liquidconnect.io/connect/lc-connect.js        (no-cache)
+ *   pinned:  https://test.liquidconnect.io/connect/v0.3/lc-connect.js   (immutable)
+ *
  * One script tag gives a website the whole "connect a SideSwap wallet"
  * flow, the same on every site: a button in the house style and a modal
  * that follows what swaption.io and BetSimply already do — choose
@@ -42,7 +45,7 @@
   if (window.LiquidConnect) return;
 
   var SELF = document.currentScript && document.currentScript.src
-    ? new URL('..', document.currentScript.src).href
+    ? new URL('/', document.currentScript.src).href   // site root: vendor/ and wallets live there whatever path this file is served from (e.g. /connect/v0.3/)
     : '/';
   var ON_A_PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   var POLL_MS = 1500;
