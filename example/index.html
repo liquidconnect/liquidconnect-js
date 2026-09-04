@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liquid Connect — example site</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0b1014; color: #e8f0f4; font: 15px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 48px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 8px; } p { color: #93a6b2; }
+  .card { background: #121a20; border: 1px solid #24333d; border-radius: 14px; padding: 22px; margin: 18px 0; }
+  .log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #93a6b2; white-space: pre-wrap; margin-top: 12px; }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; color: #e8f0f4; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Example site</h1>
+  <p>This page embeds the Liquid Connect button. Its backend (<code>example/server.mjs</code>) is a relying party on the connect server; the button only talks to that backend.</p>
+
+  <div class="card">
+    <div id="lc"></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <p>Once a wallet approves, the backend sets a signed cookie and <code>GET /api/me</code> answers with the wallet id. The chip's Disconnect posts to <code>/api/logout</code>, which also stops the wallet session.</p>
+</main>
+
+<script src="/connect/lc-connect.js"></script>
+<script>
+  const logEl = document.getElementById('log');
+  const log = (m) => { logEl.textContent += m + '\n'; };
+
+  const lc = LiquidConnect.mount('#lc', {
+    start: '/api/connect/start',
+    status: '/api/connect/status',
+    chip: true,
+    disconnect: '/api/logout',
+    // Self-hosted copies of the button resolve "See all supported wallets"
+    // against their own origin; point it at the hub instead.
+    walletsUrl: 'https://test.liquidconnect.io/wallets',
+    onConnected: (s) => log('connected: ' + JSON.stringify(s)),
+    onStatus: (s) => { log('status: ' + JSON.stringify(s)); },
+    onFailed: (t) => log('failed: ' + t),
+    onDisconnected: () => log('disconnected'),
+  });
+
+  // After a reload the cookie still holds the session: show the chip.
+  fetch('/api/me', { credentials: 'same-origin' }).then((r) => r.json()).then((me) => {
+    if (me.connected) { lc.setConnected({ wallet: me.wallet }); lc.setLive(me.live); log('already connected: ' + me.wallet); }
+  }).catch(() => {});
+</script>
+</body>
+</html>

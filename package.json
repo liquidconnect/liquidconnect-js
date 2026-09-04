@@ -1,0 +1,50 @@
+{
+  "name": "@liquidconnect/web",
+  "version": "0.3.0",
+  "description": "Liquid Connect web login: the embeddable connect button and a dependency-free Node relying-party helper",
+  "license": "MIT",
+  "author": "Liquid Connect <hello@liquidconnect.io>",
+  "private": false,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./rp/index.mjs",
+    "./rp": "./rp/index.mjs",
+    "./button": "./button/lc-connect.js",
+    "./button/lc-connect.js": "./button/lc-connect.js",
+    "./button/vendor/qrcodegen.js": "./button/vendor/qrcodegen.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "button/",
+    "rp/",
+    "example/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "example": "node example/server.mjs",
+    "check": "node --check rp/index.mjs && node --check example/server.mjs"
+  },
+  "peerDependencies": {
+    "ws": ">=8"
+  },
+  "peerDependenciesMeta": {
+    "ws": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "liquid",
+    "liquid-network",
+    "liquid-connect",
+    "sideswap",
+    "wallet",
+    "login",
+    "relying-party"
+  ],
+  "homepage": "https://test.liquidconnect.io/connect/"
+}
