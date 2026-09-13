@@ -1,4 +1,4 @@
-# The connect button (`lc-connect.js` v0.3)
+# The connect button (`lc-connect.js` v0.4)
 
 One script tag gives your site the whole "connect a SideSwap wallet" flow, the same on every site that uses Liquid Connect: a button in the house style, a direct hand-off into the wallet on a phone that brings the person back automatically, a desktop-or-mobile choice on a desktop (the flow swaption.io and BetSimply use), a **Need a wallet?** choice that leads to the wallet store and to the supported-wallets list, polling that survives the app hand-off, and an optional connected chip with disconnect.
 
@@ -11,7 +11,7 @@ No dependencies. The QR encoder (`vendor/qrcodegen.js`, MIT, Project Nayuki) is 
 | URL | Meaning |
 |---|---|
 | `https://<hub>/connect/lc-connect.js` | latest — follows new releases |
-| `https://<hub>/connect/v0.3/lc-connect.js` | immutable — pinned to 0.3.x, never changes behaviour under you |
+| `https://<hub>/connect/v0.4/lc-connect.js` | immutable — pinned to 0.4.x, never changes behaviour under you |
 
 `<hub>` is the Liquid Connect hub (`test.liquidconnect.io` today). Pin the versioned path in production; use the latest path while developing.
 

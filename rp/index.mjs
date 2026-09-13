@@ -39,12 +39,22 @@ export const ENDPOINTS = Object.freeze({
   mainnet: 'wss://connect.liquidconnect.io/server-connect',
 });
 
-/** The app link the wallet opens; identical to the Rust `app_link("login", id)`. */
-export function deepLink(requestId, path = 'login') {
+/**
+ * The app link the wallet opens; identical to the Rust `app_link("login", id)`.
+ * `network` ('liquid' | 'liquid-testnet') names the network the connect
+ * server serves: a wallet on another network refuses the link at once and
+ * declines the request over HTTP (button v0.4 / SDK 2026-09-13), instead
+ * of leaving the page waiting for a request it can never link. Omit only
+ * when unknown — a wallet reads "no network" as unknown, never as "mine".
+ */
+export function deepLink(requestId, path = 'login', network) {
   const u = new URL(`liquidconnect://${path}/`);
   u.searchParams.append('request_id', requestId);
+  if (network) u.searchParams.append('network', network);
   return u.toString();
 }
+
+const LINK_NETWORK = Object.freeze({ testnet: 'liquid-testnet', mainnet: 'liquid' });
 
 const TICK_MS = 15_000;
 const PING_AFTER_MS = 60_000;
@@ -186,7 +196,7 @@ export class LiquidConnectRP extends EventEmitter {
   /**
    * Start a login request for this domain.
    * @param {{clientData?: any, serviceChallenge?: string}} [opts]
-   * @returns {Promise<{request_id:string, deep_link:string, expires_at:number}>}
+   * @returns {Promise<{request_id:string, deep_link:string, expires_at:number, network:string}>}
    */
   async startLogin(opts = {}) {
     const envelope = JSON.stringify({ [this.clientTag]: { data: opts.clientData ?? null } });
@@ -196,13 +206,14 @@ export class LiquidConnectRP extends EventEmitter {
     const lr = resp?.StartLogin?.login_request;
     if (!lr || typeof lr.request_id !== 'string') throw new LiquidConnectError('Unknown', 'unexpected connect server response');
     this._foldLogin(lr);
-    return { request_id: lr.request_id, deep_link: deepLink(lr.request_id), expires_at: Number(lr.expires_at) };
+    const network = LINK_NETWORK[this.network];
+    return { request_id: lr.request_id, deep_link: deepLink(lr.request_id, 'login', network), expires_at: Number(lr.expires_at), network };
   }
 
   /**
    * What the button polls. Maps the server's LoginRequestStatus onto the
    * endpoint contract in button/README.md.
-   * @returns {{status:'pending'|'WaitUser'|'approved'|'canceled'|'expired'|'unknown', request_id:string, wallet_id?:string, session_id?:string, service_key?:string, expires_at?:number}}
+   * @returns {{status:'pending'|'WaitUser'|'approved'|'canceled'|'expired'|'failed'|'unknown', request_id:string, wallet_id?:string, session_id?:string, service_key?:string, expires_at?:number, reason?:string}}
    */
   status(requestId) {
     const rec = this.logins.get(requestId);
@@ -226,6 +237,9 @@ export class LiquidConnectRP extends EventEmitter {
         break;
       case 'Canceled': out.status = 'canceled'; break;
       case 'Timeout': out.status = 'expired'; break;
+      // The wallet could not act on the link (wrong network, most often)
+      // and declined it; `reason` is written for the person on the page.
+      case 'Failed': out.status = 'failed'; out.reason = String(rec.status.reason ?? ''); break;
       default: out.status = 'unknown';
     }
     if (rec.session_id && !out.session_id) { out.session_id = rec.session_id; out.status = 'approved'; }

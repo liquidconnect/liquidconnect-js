@@ -133,7 +133,7 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/connect/status' && req.method === 'GET') {
       const rid = url.searchParams.get('request_id') ?? '';
       const s = rp.status(rid);
-      if (s.status !== 'approved') { json(res, 200, { status: s.status, expires_at: s.expires_at }); return; }
+      if (s.status !== 'approved') { json(res, 200, { status: s.status, expires_at: s.expires_at, ...(s.reason ? { error: s.reason } : {}) }); return; }
       // Approved: issue our own session. One cookie per request id; a
       // second poll after approval reuses it rather than minting another.
       let id = [...sessions].find(([, v]) => v.request_id === rid)?.[0];

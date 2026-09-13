@@ -41,7 +41,7 @@ The browser never talks to Liquid Connect. Your backend does, over one persisten
    and expose two routes: `POST /api/connect/start` → `await rp.startLogin()`, and `GET /api/connect/status?request_id=` → `rp.status(id)`, issuing your own session when the status is `approved` (see `example/server.mjs`).
 4. **Put the button on the page:**
    ```html
-   <script src="https://test.liquidconnect.io/connect/v0.3/lc-connect.js"></script>
+   <script src="https://test.liquidconnect.io/connect/v0.4/lc-connect.js"></script>
    <div id="lc"></div>
    <script>LiquidConnect.mount('#lc', { onConnected(s) { location.reload(); } });</script>
    ```
@@ -88,7 +88,7 @@ Unknowns: whether a subdomain proof is accepted for its parent (or vice versa) �
 
 ## Links
 
-- Wallet-side SDK (what a wallet needs to speak Liquid Connect): https://github.com/sideswap-io/liquidconnect-sdk
+- Wallet-side SDK (what a wallet needs to speak Liquid Connect): https://github.com/liquidconnect/liquidconnect-sdk
 - Protocol: https://github.com/sideswap-io/sideswap_rust/blob/main/docs/connect.md
 - The hub (button CDN, supported wallets, RP directory): https://test.liquidconnect.io — button at `/connect/`, wallets at `/wallets`, relying parties at `/rps`
 - Questions: hello@liquidconnect.io
@@ -96,7 +96,7 @@ Unknowns: whether a subdomain proof is accepted for its parent (or vice versa) �
 ## Layout
 
 ```
-button/lc-connect.js          the button, v0.3 (verbatim from the hub)
+button/lc-connect.js          the button, v0.4 (verbatim from the hub)
 button/vendor/qrcodegen.js    QR encoder (MIT, Project Nayuki)
 button/README.md              embed snippet, endpoint contract, options, callbacks, return API
 rp/index.mjs                  LiquidConnectRP — the relying-party client

@@ -1,7 +1,7 @@
-/* Liquid Connect — the connect button, v0.3
+/* Liquid Connect — the connect button, v0.4.0
  *
  *   latest:  https://test.liquidconnect.io/connect/lc-connect.js        (no-cache)
- *   pinned:  https://test.liquidconnect.io/connect/v0.3/lc-connect.js   (immutable)
+ *   pinned:  https://test.liquidconnect.io/connect/v0.4/lc-connect.js   (immutable)
  *
  * One script tag gives a website the whole "connect a SideSwap wallet"
  * flow, the same on every site: a button in the house style and a modal
@@ -34,6 +34,12 @@
  *            { status: 'approved', ... } or { connected: true, ... }  → onConnected
  *            anything else → onStatus (return 'stop' | 'continue'), else shown as a failure
  *
+ * A site whose backend speaks over a websocket rather than two HTTP routes
+ * passes functions instead of URLs: start() resolving to the same
+ * {request_id, deep_link, expires_at} object, status(request_id) resolving
+ * to the same status object. The button does not care where the answer
+ * came from; a rejected promise is treated like an unreachable endpoint.
+ *
  * Nothing here talks to Liquid Connect: the site's backend does, and it
  * knows its own session. This file owns only the person-facing part, so
  * it can be the same everywhere. No dependencies; the QR encoder is
@@ -45,13 +51,14 @@
   if (window.LiquidConnect) return;
 
   var SELF = document.currentScript && document.currentScript.src
-    ? new URL('/', document.currentScript.src).href   // site root: vendor/ and wallets live there whatever path this file is served from (e.g. /connect/v0.3/)
+    ? new URL('/', document.currentScript.src).href   // site root: vendor/ and wallets live there whatever path this file is served from (e.g. /connect/v0.4/)
     : '/';
   var ON_A_PHONE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   var POLL_MS = 1500;
   var GRACE_MS = 90000;        // keep asking past the nominal expiry: an approval given in time is still retrievable
   var RESUME_MAX_MS = 300000;
   var DESKTOP_NUDGE_MS = 15000; // after opening the desktop wallet, offer alternatives (but keep waiting)
+  var STUCK_MS = 45000;         // still pending after this: say so, name the network, offer Cancel (polling continues)
   var INSTALL_URL = 'https://sideswap.io/downloads/';
   // The list of wallets that work with Liquid Connect lives on the hub
   // this script is served from; a copy served elsewhere falls back to it.
@@ -88,6 +95,8 @@
     failedStart: 'Could not start the connection.',
     unreachable: 'Could not reach the site.',
     noAnswer: 'No answer from the wallet — try again.',
+    stuck: 'Still waiting for your wallet. If the wallet showed an error, cancel and try again.',
+    stuckNetwork: 'This site is on {n} — the wallet must be on the same network.',
     connectedChip: 'Wallet {w}',
     goneChip: 'Wallet disconnected',
     goneMenu: 'Your wallet disconnected from Liquid Connect. Reconnect it to reach this site again.',
@@ -99,16 +108,17 @@
   };
 
   var CSS = [
-    '.lc,.lc-modal{--lc-bg:#121a20;--lc-bg2:#18232b;--lc-line:#24333d;--lc-text:#e8f0f4;--lc-muted:#93a6b2;--lc-accent:#35d6b0;--lc-ink:#04201a;--lc-warn:#f0716f;--lc-overlay:rgba(3,8,12,.72);',
+    '.lc,.lc-modal{--lc-bg:#121a20;--lc-bg2:#18232b;--lc-line:#24333d;--lc-text:#e8f0f4;--lc-muted:#93a6b2;--lc-accent:#3ee0e8;--lc-ink:#04201a;--lc-warn:#f0716f;--lc-overlay:rgba(3,8,12,.72);',
     '  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--lc-text)}',
     '.lc.lc-light,.lc-modal.lc-light{--lc-bg:#ffffff;--lc-bg2:#f2f6f8;--lc-line:#d6dee4;--lc-text:#10202a;--lc-muted:#5c6f7b;--lc-accent:#0f9f83;--lc-ink:#ffffff;--lc-overlay:rgba(20,30,40,.45)}',
     '.lc *,.lc-modal *{box-sizing:border-box}',
-    '.lc-btn{display:inline-flex;align-items:center;gap:10px;min-height:44px;padding:10px 20px;border-radius:999px;border:1px solid var(--lc-accent);',
+    '.lc-btn{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:10px 20px;border-radius:999px;border:1px solid var(--lc-accent);',
     '  background:var(--lc-accent);color:var(--lc-ink);font:inherit;font-weight:600;cursor:pointer;width:auto;margin:0;transition:box-shadow .2s,filter .2s}',
     '.lc-btn:hover{filter:brightness(1.06);box-shadow:0 0 28px -6px var(--lc-accent)}.lc-btn:disabled{opacity:.6;cursor:default}',
     '.lc-btn svg{width:18px;height:18px;flex:none}',
     '.lc-modal{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:var(--lc-overlay);padding:16px}',
-    '.lc-dialog{background:var(--lc-bg);border:1px solid var(--lc-line);border-radius:16px;width:100%;max-width:440px;max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.6)}',
+    '.lc-dialog{background:var(--lc-bg);border:1px solid var(--lc-line);border-radius:16px;width:100%;max-width:440px;max-height:calc(100vh - 32px);overflow:auto;box-shadow:0 30px 80px -20px rgba(0,0,0,.6);outline:none}',
+    '.lc-dialog button:focus-visible,.lc-dialog a:focus-visible{outline:2px solid var(--lc-accent);outline-offset:2px}',
     '.lc-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--lc-line)}',
     '.lc-head h3{margin:0;font-size:16px;font-weight:600}',
     '.lc-x{background:transparent;border:0;color:var(--lc-muted);font:inherit;font-size:20px;line-height:1;cursor:pointer;padding:4px 6px;margin:0;width:auto}',
@@ -199,12 +209,29 @@
     if (opts.note) T.note = opts.note;
     var startUrl = opts.start || '/api/connect/start';
     var statusUrl = opts.status || '/api/connect/status';
+    // Each transport is a URL (fetched) or a function (called); both
+    // resolve to the same JSON shape. A function that throws is the same
+    // as an endpoint that could not be reached.
+    function callStart() {
+      if (typeof startUrl === 'function') return Promise.resolve().then(function () { return startUrl(opts.startBody || {}); });
+      return fetch(startUrl, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(opts.startBody || {}) })
+        .then(function (r) { return r.json(); });
+    }
+    function callStatus(rid) {
+      if (typeof statusUrl === 'function') return Promise.resolve().then(function () { return statusUrl(rid); });
+      return fetch(statusUrl + (statusUrl.indexOf('?') >= 0 ? '&' : '?') + 'request_id=' + encodeURIComponent(rid), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); });
+    }
+    function callDisconnect() {
+      if (typeof opts.disconnect === 'function') return Promise.resolve().then(function () { return opts.disconnect(); });
+      return fetch(opts.disconnect, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(opts.disconnectBody || {}) });
+    }
     var storageKey = opts.storageKey || 'lc_connect_pending';
     var walletsUrl = opts.walletsUrl || WALLETS_URL;
     var installUrl = opts.installUrl || INSTALL_URL;
     var theme = opts.theme === 'light' ? ' lc-light' : '';
 
-    var pollTimer = null, countTimer = null, nudgeTimer = null;
+    var pollTimer = null, countTimer = null, nudgeTimer = null, stuckTimer = null;
     var polling = false, currentRid = null, connected = null;
     var current = null; // {rid, link, deadline}
 
@@ -221,13 +248,35 @@
     if (opts.chip) root.appendChild(chip);
 
     // ---- the modal ------------------------------------------------------
-    var modal = null, body = null;
+    // The modal is a real dialog: named by its heading, focus moves into it
+    // when it opens, Tab cycles inside it, Escape closes it, and focus
+    // returns to whatever opened it when it closes.
+    var modal = null, body = null, dialog = null, opener = null;
+    var titleId = 'lc-title-' + Math.random().toString(36).slice(2, 8);
+    function focusables() {
+      if (!dialog) return [];
+      var all = dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+      var out = [];
+      for (var i = 0; i < all.length; i++) if (!all[i].disabled && all[i].offsetParent !== null) out.push(all[i]);
+      return out;
+    }
+    function focusFirst() {
+      if (!dialog) return;
+      var f = focusables();
+      // the first choice, not the close button, is where a keyboard user starts
+      var target = null;
+      for (var i = 0; i < f.length; i++) if (!f[i].classList.contains('lc-x')) { target = f[i]; break; }
+      (target || f[0] || dialog).focus();
+    }
     function openModal() {
       if (modal) return;
+      if (!opener) opener = document.activeElement;
       modal = el('div', 'lc-modal' + theme);
-      var dialog = el('div', 'lc-dialog');
+      dialog = el('div', 'lc-dialog');
       dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
-      var head = el('div', 'lc-head', '<h3>' + esc(T.title) + '</h3>');
+      dialog.setAttribute('aria-labelledby', titleId);
+      dialog.tabIndex = -1;
+      var head = el('div', 'lc-head', '<h3 id="' + titleId + '">' + esc(T.title) + '</h3>');
       var x = el('button', 'lc-x', '&times;'); x.type = 'button'; x.setAttribute('aria-label', T.cancel);
       x.onclick = cancelFlow;
       head.appendChild(x);
@@ -235,21 +284,40 @@
       dialog.appendChild(head); dialog.appendChild(body);
       modal.appendChild(dialog);
       modal.addEventListener('click', function (ev) { if (ev.target === modal) cancelFlow(); });
-      document.addEventListener('keydown', escClose);
+      document.addEventListener('keydown', modalKeys);
       document.body.appendChild(modal);
     }
-    function escClose(ev) { if (ev.key === 'Escape') cancelFlow(); }
+    function modalKeys(ev) {
+      if (ev.key === 'Escape') { cancelFlow(); return; }
+      if (ev.key !== 'Tab' || !dialog) return;
+      var f = focusables();
+      if (!f.length) { ev.preventDefault(); dialog.focus(); return; }
+      var first = f[0], last = f[f.length - 1], cur = document.activeElement;
+      var inside = dialog.contains(cur);
+      if (ev.shiftKey) {
+        if (!inside || cur === first) { ev.preventDefault(); last.focus(); }
+      } else if (!inside || cur === last) { ev.preventDefault(); first.focus(); }
+    }
     function closeModal() {
       if (!modal) return;
-      document.removeEventListener('keydown', escClose);
-      modal.remove(); modal = null; body = null;
+      document.removeEventListener('keydown', modalKeys);
+      modal.remove(); modal = null; body = null; dialog = null;
       clearTimers();
+      // after the caller has re-enabled its button (a disabled control cannot take focus)
+      var back = opener; opener = null;
+      setTimeout(function () { if (back && typeof back.focus === 'function' && document.contains(back) && !back.disabled) back.focus(); }, 0);
     }
     function clearTimers() {
       if (countTimer) { clearInterval(countTimer); countTimer = null; }
       if (nudgeTimer) { clearTimeout(nudgeTimer); nudgeTimer = null; }
+      if (stuckTimer) { clearTimeout(stuckTimer); stuckTimer = null; }
     }
-    function render(html) { openModal(); clearTimers(); body.innerHTML = html; return body; }
+    function render(html) {
+      openModal(); clearTimers(); body.innerHTML = html;
+      // after the screen is built by the caller; a tick lets it attach its buttons
+      setTimeout(function () { if (dialog) focusFirst(); }, 0);
+      return body;
+    }
 
     function footer() {
       return '<div class="lc-foot"><span>•</span><p style="margin:0">' + esc(T.needWallet) + ' <a href="' + esc(installUrl) + '" target="_blank" rel="noopener noreferrer">' + esc(T.getWallet) + '</a> · <a href="' + esc(walletsUrl) + '" target="_blank" rel="noopener noreferrer">' + esc(T.allWallets) + '</a></p></div>';
@@ -360,7 +428,11 @@
     }
 
     // ---- flow ------------------------------------------------------------
-    function stopPolling() { polling = false; if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+    function stopPolling() {
+      polling = false;
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+      if (stuckTimer) { clearTimeout(stuckTimer); stuckTimer = null; }
+    }
     function clearPending() { try { localStorage.removeItem(storageKey); } catch (e) {} }
     function savePending(p) { try { localStorage.setItem(storageKey, JSON.stringify(p)); } catch (e) {} }
     function readPending() { try { return JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (e) { return null; } }
@@ -400,11 +472,12 @@
     function poll(rid, deadline) {
       if (polling) return;
       polling = true; currentRid = rid;
+      if (stuckTimer) clearTimeout(stuckTimer);
+      stuckTimer = setTimeout(showStuck, STUCK_MS);
       function step() {
         if (!polling || currentRid !== rid) return;
         if (Date.now() > deadline + GRACE_MS) { fail(T.noAnswer); return; }
-        fetch(statusUrl + (statusUrl.indexOf('?') >= 0 ? '&' : '?') + 'request_id=' + encodeURIComponent(rid), { credentials: 'same-origin' })
-          .then(function (r) { return r.json(); })
+        callStatus(rid)
           .then(function (s) {
             if (!polling || currentRid !== rid) return;
             if ((s.connected && s.token) || s.status === 'approved') { becomeConnected(s); return; }
@@ -424,18 +497,43 @@
       pollTimer = setTimeout(step, POLL_MS);
     }
 
+    // Still pending well past the time a wallet needs to pick a link up.
+    // Say so in place (whatever screen is showing), name the network this
+    // site is on — a wallet on the other network is the commonest reason,
+    // and it cannot reach our server to say so itself unless it is new
+    // enough to decline over HTTP — and offer a way out. Polling continues:
+    // a slow approval still lands.
+    function showStuck() {
+      stuckTimer = null;
+      if (!body || !polling || body.querySelector('.lc-stuck')) return;
+      var net = current && current.network ? networkName(current.network) : '';
+      var s = el('div', 'lc-stuck lc-center', '<p class="lc-muted">' + esc(T.stuck) + (net ? ' ' + esc(fmt(T.stuckNetwork, { n: net })) : '') + '</p>' +
+        '<div class="lc-row"><button type="button" class="lc-ghost lc-cancel">' + esc(T.cancel) + '</button></div>');
+      body.appendChild(s);
+      s.querySelector('.lc-cancel').onclick = cancelWait;
+    }
+    function cancelWait() { clearPending(); stopPolling(); closeModal(); button.disabled = false; }
+    function networkName(n) {
+      n = String(n || '').toLowerCase();
+      if (n === 'liquid' || n === 'mainnet') return 'Liquid mainnet';
+      if (n === 'liquid-testnet' || n === 'testnet') return 'Liquid testnet';
+      if (n === 'liquid-regtest' || n === 'regtest') return 'Liquid regtest';
+      return n;
+    }
+
     function connect() {
       if (polling) { openModal(); return; }
+      // remember who opened us before disabling the button drops focus to body
+      opener = document.activeElement;
       button.disabled = true;
       viewStarting();
-      fetch(startUrl, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(opts.startBody || {}) })
-        .then(function (r) { return r.json(); })
+      callStart()
         .then(function (j) {
           if (!j || j.error || !j.request_id || !j.deep_link) { fail((j && j.error) ? j.error : T.failedStart); return; }
           var deadline = Number(j.expires_at) || (Date.now() + 120000);
           if (deadline < 1e12) deadline = deadline * 1000; // seconds → ms
-          current = { rid: j.request_id, link: j.deep_link, deadline: deadline };
-          savePending({ rid: j.request_id, link: j.deep_link, deadline: deadline, t: Date.now() });
+          current = { rid: j.request_id, link: j.deep_link, deadline: deadline, network: j.network || '' };
+          savePending({ rid: j.request_id, link: j.deep_link, deadline: deadline, network: j.network || '', t: Date.now() });
           viewChoose();
           poll(j.request_id, deadline);
         })
@@ -446,7 +544,7 @@
       if (connected || polling) return;
       var p = readPending();
       if (!p || !p.rid || Date.now() - (p.t || 0) > RESUME_MAX_MS) { clearPending(); return; }
-      current = { rid: p.rid, link: p.link || '', deadline: p.deadline || Date.now() };
+      current = { rid: p.rid, link: p.link || '', deadline: p.deadline || Date.now(), network: p.network || '' };
       viewWaiting();
       poll(p.rid, current.deadline);
     }
@@ -460,7 +558,7 @@
         if (opts.onDisconnected) opts.onDisconnected();
       }
       if (opts.disconnect) {
-        fetch(opts.disconnect, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(opts.disconnectBody || {}) }).then(done, done);
+        callDisconnect().then(done, done);
       } else done();
     }
 
@@ -496,7 +594,7 @@
       needWallet: function () { viewNeedWallet(); },
       walletsUrl: walletsUrl,
       isPhone: ON_A_PHONE,
-      version: '0.3.0'
+      version: '0.3.2'
     };
   }
 
